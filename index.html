@@ -163,33 +163,46 @@
     }
 
 function drawShape(c, shape) {
-        if (shape.points.length < 2) return;
-        c.beginPath();
-        c.globalAlpha = 0.7;
-        c.fillStyle = c.strokeStyle = shape.color;
-        c.lineWidth = (shape.mode === 'draw' ? 3 : 2) * scale;
-        c.lineCap = c.lineJoin = 'round';
+    if (shape.points.length < 2) return;
+    c.beginPath();
+    c.globalAlpha = 0.7;
+    c.fillStyle = shape.color; // Set warna isi
+    c.strokeStyle = shape.color; // Set warna garis
+    c.lineCap = c.lineJoin = 'round';
 
-        let pts = shape.points.map(p => toScreen(p.x, p.y));
-        c.moveTo(pts[0].x, pts[0].y);
-        pts.forEach(p => c.lineTo(p.x, p.y));
+    let pts = shape.points.map(p => toScreen(p.x, p.y));
+    c.moveTo(pts[0].x, pts[0].y);
 
-        if (shape.mode === 'fill') {
-            let dist = Math.hypot(pts[pts.length-1].x - pts[0].x, pts[pts.length-1].y - pts[0].y);
-            if (dist < 30 * scale) {
-                c.closePath();
-            } else {
-                let originY = toScreen(0, axes.x.active ? axes.x.pos : 100 * gridStep).y;
-                c.lineTo(pts[pts.length-1].x, originY);
-                c.lineTo(pts[0].x, originY);
-            }
-            c.fill();
-            // c.stroke() dihapus/tidak dijalankan di sini agar tidak ada outline
-        } else {
-            // Hanya mode 'draw' (oretan) yang pakai stroke
-            c.stroke();
+    // LOGIKA SMOOTHING (Opsional: Tambahkan ini jika ingin area lebih bulat/halus)
+    if (pts.length > 2) {
+        for (var i = 1; i < pts.length - 2; i++) {
+            var xc = (pts[i].x + pts[i + 1].x) / 2;
+            var yc = (pts[i].y + pts[i + 1].y) / 2;
+            c.quadraticCurveTo(pts[i].x, pts[i].y, xc, yc);
         }
+        c.quadraticCurveTo(pts[i].x, pts[i].y, pts[i + 1].x, pts[i + 1].y);
+    } else {
+        pts.forEach(p => c.lineTo(p.x, p.y));
     }
+
+    if (shape.mode === 'fill') {
+        // Mode AREA: Solid tanpa outline
+        let dist = Math.hypot(pts[pts.length - 1].x - pts[0].x, pts[pts.length - 1].y - pts[0].y);
+        if (dist < 30 * scale) {
+            c.closePath();
+        } else {
+            let originY = toScreen(0, axes.x.active ? axes.x.pos : 100 * gridStep).y;
+            c.lineTo(pts[pts.length - 1].x, originY);
+            c.lineTo(pts[0].x, originY);
+        }
+        c.fill(); 
+        // c.stroke() benar-benar tidak dipanggil di sini agar solid
+    } else {
+        // Mode ORETAN: Hanya garis
+        c.lineWidth = 3 * scale;
+        c.stroke();
+    }
+}
 
     let smoothX = 0, smoothY = 0;
     canvas.addEventListener('mousedown', (e) => {
