@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Sequential Shoelace Tool</title>
+    <link href="https://fonts.googleapis.com/css2?family=Quicksand:wght@600&display=swap" rel="stylesheet">
+    <style>
+        body { margin: 0; overflow: hidden; background: #fff; font-family: 'Quicksand', sans-serif; touch-action: none; }
+        #gridCanvas { pointer-events: none; z-index: 1; }
+        #mainCanvas { z-index: 2; cursor: crosshair; }
+        #tempCanvas { pointer-events: none; z-index: 3; }
+        canvas { display: block; position: absolute; top: 0; left: 0; }
+        
+        .ui { position: absolute; top: 20px; left: 25px; z-index: 10; pointer-events: none; color: #555; }
+        .ui b { font-size: 1.2rem; color: #333; }
+
+        .controls-left { position: absolute; bottom: 30px; left: 30px; z-index: 20; display: flex; flex-direction: column; align-items: flex-start; }
+        .controls-right { position: absolute; bottom: 30px; right: 30px; z-index: 20; display: flex; flex-direction: column; align-items: flex-end; }
+        
+        .btn-link { background: none; border: none; color: #FF7F50; font-family: 'Quicksand', sans-serif; font-size: 1.1rem; font-weight: 600; cursor: pointer; padding: 4px 5px; transition: all 0.2s; text-transform: lowercase; }
+        .btn-link:hover { transform: scale(1.1); opacity: 0.8; }
+        .btn-link:disabled { color: #ccc; cursor: default; transform: none; opacity: 0.5; }
+
+        .v-item { font-size: 1.1rem; color: #ccc; cursor: pointer; transition: all 0.3s; text-transform: lowercase; font-weight: 600; padding: 4px 5px; }
+        .v-item.active { color: #FF7F50; transform: scale(1.1); }
+        .v-item.disabled { opacity: 0.3; pointer-events: none; }
+        .spacer { margin-bottom: 20px; }
+    </style>
+</head>
+<body>
+
+<div class="ui"><b>1 sepatu 2 durian</b></div>
+
+<div class="controls-left">
+    <span id="labelBtn" class="v-item disabled" onclick="toggleLabel()">label</span>
+    <span id="xAxisBtn" class="v-item" onclick="toggleAxis('x')">x-axis</span>
+    <span id="yAxisBtn" class="v-item spacer" onclick="toggleAxis('y')">y-axis</span>
+    <span id="modeFill" class="v-item active" onclick="setMode('fill')">area</span>
+    <span id="modeDraw" class="v-item spacer" onclick="setMode('draw')">oretan</span>
+    <span id="gridBtn" class="v-item" onclick="toggleGrid()">grid</span>
+</div>
+
+<div class="controls-right">
+    <button class="btn-link" onclick="zoom(1.1)">zoom in</button>
+    <button class="btn-link" onclick="zoom(0.9)">zoom out</button>
+    <span id="dragBtn" class="v-item" onclick="toggleDrag()">drag</span>
+    <span id="moveAxisBtn" class="v-item spacer" onclick="toggleMoveAxis()">move axis</span>
+    <button class="btn-link" id="undoBtn" onclick="undo()">undo</button>
+    <button class="btn-link spacer" id="redoBtn" onclick="redo()">redo</button>
+    <button class="btn-link" style="font-size:1.2rem;" onclick="clearAll()">clear all</button>
+</div>
+
+<canvas id="gridCanvas"></canvas>
+<canvas id="mainCanvas"></canvas>
+<canvas id="tempCanvas"></canvas>
+
+<script>
+    const canvas = document.getElementById('mainCanvas');
+    const ctx = canvas.getContext('2d');
+    const tCtx = document.getElementById('tempCanvas').getContext('2d');
+    const gCtx = document.getElementById('gridCanvas').getContext('2d');
+
+    let shapes = [], redoStack = [];
+    const MAX_HISTORY = 30;
+
+    let scale = 1.2, offsetX = 50, offsetY = 50, gridStep = 40;
+    let dragOn = false, moveAxisOn = false, isDraggingView = false;
+    let lastMouseX = 0, lastMouseY = 0;
+
+    let currentMode = 'fill', isDrawing = false, path = [], colorIndex = 0;
+    let showGrid = false, showLabel = false;
+    let axes = { x: { active: false, pos: 100, dragging: false }, y: { active: false, pos: 100, dragging: false } };
+    const colorList = ["#FF007F", "#00F5FF", "#7D26CD", "#FFD100", "#39FF14", "#FF6600", "#0044FF"];
+
+    function resize() {
+        canvas.width = tCtx.canvas.width = gCtx.canvas.width = window.innerWidth;
+        canvas.height = tCtx.canvas.height = gCtx.canvas.height = window.innerHeight;
+        drawAll();
+    }
+    window.addEventListener('resize', resize);
+
+    function toggleDrag() { dragOn = !dragOn; if(dragOn) moveAxisOn = false; updateUI(); }
+    function toggleMoveAxis() { moveAxisOn = !moveAxisOn; if(moveAxisOn) dragOn = false; updateUI(); }
+    function toggleGrid() { showGrid = !showGrid; updateUI(); drawAll(); }
+    function setMode(m) { currentMode = m; updateUI(); }
+    function toggleAxis(type) { 
+        axes[type].active = !axes[type].active; 
+        const lb = document.getElementById('labelBtn');
+        if(axes.x.active && axes.y.active) lb.classList.remove('disabled');
+        else { showLabel = false; lb.classList.add('disabled'); }
+        updateUI(); drawAll(); 
+    }
+    function toggleLabel() { if(!axes.x.active || !axes.y.active) return; showLabel = !showLabel; updateUI(); drawAll(); }
+    function zoom(f) { scale *= f; drawAll(); }
+
+    function updateUI() {
+        document.getElementById('dragBtn').classList.toggle('active', dragOn);
+        document.getElementById('moveAxisBtn').classList.toggle('active', moveAxisOn);
+        document.getElementById('gridBtn').classList.toggle('active', showGrid);
+        document.getElementById('modeFill').classList.toggle('active', currentMode === 'fill');
+        document.getElementById('modeDraw').classList.toggle('active', currentMode === 'draw');
+        document.getElementById('xAxisBtn').classList.toggle('active', axes.x.active);
+        document.getElementById('yAxisBtn').classList.toggle('active', axes.y.active);
+        document.getElementById('labelBtn').classList.toggle('active', showLabel);
+        canvas.style.cursor = dragOn ? 'grab' : (moveAxisOn ? 'move' : 'crosshair');
+    }
+
+    const toWorld = (x, y) => ({ x: (x - offsetX) / scale, y: (y - offsetY) / scale });
+    const toScreen = (x, y) => ({ x: x * scale + offsetX, y: y * scale + offsetY });
+
+    function drawAll() {
+        gCtx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const s = gridStep * scale;
+
+        if (showGrid) {
+            gCtx.beginPath();
+            gCtx.strokeStyle = "#ccc";
+            gCtx.lineWidth = 0.5;
+            gCtx.globalAlpha = 0.2; // Even thinner
+            for (let i = 0; i <= 100; i++) {
+                let x = toScreen(i * gridStep, 0).x;
+                if(x >= 0 && x <= canvas.width) {
+                    gCtx.moveTo(x, Math.max(0, toScreen(0,0).y));
+                    gCtx.lineTo(x, Math.min(canvas.height, toScreen(0, 100 * gridStep).y));
+                }
+                let y = toScreen(0, i * gridStep).y;
+                if(y >= 0 && y <= canvas.height) {
+                    gCtx.moveTo(Math.max(0, toScreen(0,0).x), y);
+                    gCtx.lineTo(Math.min(canvas.width, toScreen(100 * gridStep, 0).x), y);
+                }
+            }
+            gCtx.stroke();
+            gCtx.globalAlpha = 1;
+        }
+
+        gCtx.lineWidth = 2;
+        gCtx.strokeStyle = "#888";
+        gCtx.globalAlpha = 0.2; // Very light axis
+        if (axes.x.active) {
+            let py = toScreen(0, axes.x.pos).y;
+            gCtx.beginPath(); gCtx.moveTo(0, py); gCtx.lineTo(canvas.width, py); gCtx.stroke();
+        }
+        if (axes.y.active) {
+            let px = toScreen(axes.y.pos, 0).x;
+            gCtx.beginPath(); gCtx.moveTo(px, 0); gCtx.lineTo(px, canvas.height); gCtx.stroke();
+        }
+        gCtx.globalAlpha = 1;
+
+        if (showLabel && axes.x.active && axes.y.active) {
+            gCtx.font = `${Math.max(9, 9 * scale)}px Quicksand`;
+            gCtx.fillStyle = "#999";
+            let origin = toScreen(axes.y.pos, axes.x.pos);
+            for (let i = 0; i <= 100; i+=5) {
+                let px = toScreen(axes.y.pos + (i * gridStep), 0).x;
+                if(px >= 0 && px <= canvas.width) gCtx.fillText(i, px + 2, origin.y + (12 * scale));
+                let py = toScreen(0, axes.x.pos - (i * gridStep)).y;
+                if(py >= 0 && py <= canvas.height && i !== 0) gCtx.fillText(i, origin.x - (12 * scale), py + 3);
+            }
+        }
+        shapes.forEach(shape => drawShape(ctx, shape));
+    }
+
+    function drawShape(c, shape) {
+        if (shape.points.length < 2) return;
+        c.beginPath();
+        c.globalAlpha = 0.7;
+        c.fillStyle = c.strokeStyle = shape.color;
+        c.lineWidth = (shape.mode === 'draw' ? 3 : 2) * scale;
+        c.lineCap = c.lineJoin = 'round';
+
+        let pts = shape.points.map(p => toScreen(p.x, p.y));
+        c.moveTo(pts[0].x, pts[0].y);
+        pts.forEach(p => c.lineTo(p.x, p.y));
+
+        if (shape.mode === 'fill') {
+            let dist = Math.hypot(pts[pts.length-1].x - pts[0].x, pts[pts.length-1].y - pts[0].y);
+            if (dist < 30 * scale) {
+                c.closePath();
+            } else {
+                let originY = toScreen(0, axes.x.active ? axes.x.pos : 100 * gridStep).y;
+                c.lineTo(pts[pts.length-1].x, originY);
+                c.lineTo(pts[0].x, originY);
+            }
+            c.fill();
+        }
+        c.stroke();
+    }
+
+    let smoothX = 0, smoothY = 0;
+    canvas.addEventListener('mousedown', (e) => {
+        lastMouseX = e.clientX; lastMouseY = e.clientY;
+        if (dragOn) { isDraggingView = true; return; }
+        
+        if (moveAxisOn) {
+            if (axes.x.active && Math.abs(e.clientY - toScreen(0, axes.x.pos).y) < 30) axes.x.dragging = true;
+            if (axes.y.active && Math.abs(e.clientX - toScreen(axes.y.pos, 0).x) < 30) axes.y.dragging = true;
+            if (axes.x.dragging || axes.y.dragging) return;
+        }
+
+        isDrawing = true;
+        let p = toWorld(e.clientX, e.clientY);
+        smoothX = p.x; smoothY = p.y;
+        path = [{x: p.x, y: p.y}];
+        redoStack = [];
+    });
+
+    window.addEventListener('mousemove', (e) => {
+        if (isDraggingView) {
+            offsetX += e.clientX - lastMouseX; offsetY += e.clientY - lastMouseY;
+            lastMouseX = e.clientX; lastMouseY = e.clientY;
+            drawAll(); return;
+        }
+        if (axes.x.dragging) {
+            axes.x.pos = Math.round((e.clientY - offsetY) / (gridStep * scale)) * gridStep;
+            drawAll(); return;
+        }
+        if (axes.y.dragging) {
+            axes.y.pos = Math.round((e.clientX - offsetX) / (gridStep * scale)) * gridStep;
+            drawAll(); return;
+        }
+        if (isDrawing) {
+            let p = toWorld(e.clientX, e.clientY);
+            smoothX = smoothX * 0.7 + p.x * 0.3;
+            smoothY = smoothY * 0.7 + p.y * 0.3;
+            if (Math.hypot(smoothX - path[path.length-1].x, smoothY - path[path.length-1].y) > 1/scale) {
+                path.push({x: smoothX, y: smoothY});
+                tCtx.clearRect(0, 0, canvas.width, canvas.height);
+                drawShape(tCtx, { points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
+            }
+        }
+    });
+
+    window.addEventListener('mouseup', () => {
+        if (isDrawing && path.length > 1) {
+            shapes.push({ points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
+            colorIndex++;
+            tCtx.clearRect(0, 0, canvas.width, canvas.height);
+            drawAll();
+        }
+        isDrawing = isDraggingView = axes.x.dragging = axes.y.dragging = false;
+        updateButtons();
+    });
+
+    function undo() { 
+        if(shapes.length) { 
+            let last = shapes.pop();
+            // If the last item was a group from Clear All, restore it as a single unit
+            redoStack.push(last);
+            drawAll(); 
+            updateButtons(); 
+        } 
+    }
+
+    function redo() { 
+        if(redoStack.length) { 
+            shapes.push(redoStack.pop()); 
+            drawAll(); 
+            updateButtons(); 
+        } 
+    }
+
+    function clearAll() {
+        if(shapes.length > 0) {
+            // Pack all current shapes into a single entry to allow 1-click undo
+            let snapshot = [...shapes];
+            redoStack = []; // Reset redo stack on new action
+            // Using a special "group" behavior for undo
+            shapes = []; 
+            // We push a dummy object or just handle the undo logic
+            // To make it simple: clearAll just moves current shapes to redoStack
+            // But we want to be able to "undo" the clear.
+            // Let's wrap current shapes into a proxy object:
+            let clearAction = { isGroup: true, data: snapshot };
+            // Instead of clearing shapes, we just push them to redo as a single undoable unit
+            // But the UI needs them gone. So:
+            redoStack.push(snapshot); 
+            shapes = []; 
+            drawAll(); 
+            updateButtons();
+        }
+    }
+
+    // Adjusted undo to handle the Clear All logic
+    function undo() {
+        if(shapes.length === 0 && redoStack.length > 0) {
+            // Check if last redo is a snapshot from Clear All
+            let potentialSnapshot = redoStack[redoStack.length - 1];
+            if(Array.isArray(potentialSnapshot)) {
+                shapes = redoStack.pop();
+                drawAll();
+                updateButtons();
+                return;
+            }
+        }
+        if(shapes.length) {
+            redoStack.push(shapes.pop());
+            drawAll();
+            updateButtons();
+        }
+    }
+
+    function updateButtons() {
+        document.getElementById('undoBtn').disabled = (shapes.length === 0 && (redoStack.length === 0 || !Array.isArray(redoStack[redoStack.length-1])));
+        document.getElementById('redoBtn').disabled = redoStack.length === 0;
+    }
+
+    resize();
+    updateButtons();
+</script>
+</body>
+</html>
