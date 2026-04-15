@@ -258,7 +258,16 @@ function handleMove(e) {
         if(e.cancelable) e.preventDefault(); // Stop scroll saat gambar
     }
 }
-
+function handleEnd() {
+    if (isDrawing && path.length > 1) {
+        shapes.push({ points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
+        colorIndex++;
+        tCtx.clearRect(0, 0, canvas.width, canvas.height);
+        drawAll();
+    }
+    isDrawing = isDraggingView = axes.x.dragging = axes.y.dragging = false;
+    updateButtons();
+}
 // 4. Pasang semua listener (Mouse & Touch)
 canvas.addEventListener('mousedown', handleStart);
 window.addEventListener('mousemove', handleMove, { passive: false });
@@ -268,15 +277,6 @@ canvas.addEventListener('touchstart', (e) => { handleStart(e); e.preventDefault(
 window.addEventListener('touchmove', (e) => { handleMove(e); }, { passive: false });
 window.addEventListener('touchend', handleEnd);
 
-    function undo() { 
-        if(shapes.length) { 
-            let last = shapes.pop();
-            // If the last item was a group from Clear All, restore it as a single unit
-            redoStack.push(last);
-            drawAll(); 
-            updateButtons(); 
-        } 
-    }
 
     function redo() { 
         if(redoStack.length) { 
