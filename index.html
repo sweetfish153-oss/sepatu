@@ -162,7 +162,7 @@
         shapes.forEach(shape => drawShape(ctx, shape));
     }
 
-    function drawShape(c, shape) {
+function drawShape(c, shape) {
         if (shape.points.length < 2) return;
         c.beginPath();
         c.globalAlpha = 0.7;
@@ -184,8 +184,11 @@
                 c.lineTo(pts[0].x, originY);
             }
             c.fill();
+            // c.stroke() dihapus/tidak dijalankan di sini agar tidak ada outline
+        } else {
+            // Hanya mode 'draw' (oretan) yang pakai stroke
+            c.stroke();
         }
-        c.stroke();
     }
 
     let smoothX = 0, smoothY = 0;
@@ -222,8 +225,8 @@
         }
         if (isDrawing) {
             let p = toWorld(e.clientX, e.clientY);
-            smoothX = smoothX * 0.7 + p.x * 0.3;
-            smoothY = smoothY * 0.7 + p.y * 0.3;
+            smoothX = smoothX * 0.8 + p.x * 0.2;
+            smoothY = smoothY * 0.8 + p.y * 0.2;
             if (Math.hypot(smoothX - path[path.length-1].x, smoothY - path[path.length-1].y) > 1/scale) {
                 path.push({x: smoothX, y: smoothY});
                 tCtx.clearRect(0, 0, canvas.width, canvas.height);
