@@ -205,59 +205,68 @@ function drawShape(c, shape) {
 }
 
     let smoothX = 0, smoothY = 0;
-    canvas.addEventListener('mousedown', (e) => {
-        lastMouseX = e.clientX; lastMouseY = e.clientY;
-        if (dragOn) { isDraggingView = true; return; }
-        
-        if (moveAxisOn) {
-            if (axes.x.active && Math.abs(e.clientY - toScreen(0, axes.x.pos).y) < 30) axes.x.dragging = true;
-            if (axes.y.active && Math.abs(e.clientX - toScreen(axes.y.pos, 0).x) < 30) axes.y.dragging = true;
-            if (axes.x.dragging || axes.y.dragging) return;
-        }
+    // 1. Fungsi pembantu untuk deteksi koordinat (Mouse atau Touch)
+function getEventPos(e) {
+    if (e.touches && e.touches.length > 0) {
+        return { x: e.touches[0].clientX, y: e.touches[0].clientY };
+    }
+    return { x: e.clientX, y: e.clientY };
+}
 
-        isDrawing = true;
-        let p = toWorld(e.clientX, e.clientY);
-        smoothX = p.x; smoothY = p.y;
-        path = [{x: p.x, y: p.y}];
-        redoStack = [];
-    });
+// 2. Gabungkan logika start
+function handleStart(e) {
+    const pos = getEventPos(e);
+    lastMouseX = pos.x; lastMouseY = pos.y;
+    if (dragOn) { isDraggingView = true; return; }
+    if (moveAxisOn) {
+        if (axes.x.active && Math.abs(pos.y - toScreen(0, axes.x.pos).y) < 40) axes.x.dragging = true;
+        if (axes.y.active && Math.abs(pos.x - toScreen(axes.y.pos, 0).x) < 40) axes.y.dragging = true;
+        if (axes.x.dragging || axes.y.dragging) return;
+    }
+    isDrawing = true;
+    let p = toWorld(pos.x, pos.y);
+    smoothX = p.x; smoothY = p.y;
+    path = [{x: p.x, y: p.y}];
+    redoStack = [];
+}
 
-    window.addEventListener('mousemove', (e) => {
-        if (isDraggingView) {
-            offsetX += e.clientX - lastMouseX; offsetY += e.clientY - lastMouseY;
-            lastMouseX = e.clientX; lastMouseY = e.clientY;
-            drawAll(); return;
-        }
-        if (axes.x.dragging) {
-            axes.x.pos = Math.round((e.clientY - offsetY) / (gridStep * scale)) * gridStep;
-            drawAll(); return;
-        }
-        if (axes.y.dragging) {
-            axes.y.pos = Math.round((e.clientX - offsetX) / (gridStep * scale)) * gridStep;
-            drawAll(); return;
-        }
-        if (isDrawing) {
-            let p = toWorld(e.clientX, e.clientY);
-            smoothX = smoothX * 0.8 + p.x * 0.2;
-            smoothY = smoothY * 0.8 + p.y * 0.2;
-            if (Math.hypot(smoothX - path[path.length-1].x, smoothY - path[path.length-1].y) > 1/scale) {
-                path.push({x: smoothX, y: smoothY});
-                tCtx.clearRect(0, 0, canvas.width, canvas.height);
-                drawShape(tCtx, { points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
-            }
-        }
-    });
-
-    window.addEventListener('mouseup', () => {
-        if (isDrawing && path.length > 1) {
-            shapes.push({ points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
-            colorIndex++;
+// 3. Gabungkan logika move
+function handleMove(e) {
+    const pos = getEventPos(e);
+    if (isDraggingView) {
+        offsetX += pos.x - lastMouseX; offsetY += pos.y - lastMouseY;
+        lastMouseX = pos.x; lastMouseY = pos.y;
+        drawAll(); return;
+    }
+    if (axes.x.dragging) {
+        axes.x.pos = Math.round((pos.y - offsetY) / (gridStep * scale)) * gridStep;
+        drawAll(); return;
+    }
+    if (axes.y.dragging) {
+        axes.y.pos = Math.round((pos.x - offsetX) / (gridStep * scale)) * gridStep;
+        drawAll(); return;
+    }
+    if (isDrawing) {
+        let p = toWorld(pos.x, pos.y);
+        smoothX = smoothX * 0.7 + p.x * 0.3;
+        smoothY = smoothY * 0.7 + p.y * 0.3;
+        if (Math.hypot(smoothX - path[path.length-1].x, smoothY - path[path.length-1].y) > 1/scale) {
+            path.push({x: smoothX, y: smoothY});
             tCtx.clearRect(0, 0, canvas.width, canvas.height);
-            drawAll();
+            drawShape(tCtx, { points: path, color: colorList[colorIndex % colorList.length], mode: currentMode });
         }
-        isDrawing = isDraggingView = axes.x.dragging = axes.y.dragging = false;
-        updateButtons();
-    });
+        if(e.cancelable) e.preventDefault(); // Stop scroll saat gambar
+    }
+}
+
+// 4. Pasang semua listener (Mouse & Touch)
+canvas.addEventListener('mousedown', handleStart);
+window.addEventListener('mousemove', handleMove, { passive: false });
+window.addEventListener('mouseup', handleEnd);
+
+canvas.addEventListener('touchstart', (e) => { handleStart(e); e.preventDefault(); }, { passive: false });
+window.addEventListener('touchmove', (e) => { handleMove(e); }, { passive: false });
+window.addEventListener('touchend', handleEnd);
 
     function undo() { 
         if(shapes.length) { 
